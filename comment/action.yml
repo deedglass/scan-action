@@ -1,5 +1,5 @@
 name: Deedglass scan comment
-description: The workflow_run half of Deedglass scan. Posts or edits one comment on the pull request in this repository. Never checks out pull request code. Its errors become warnings, so it never blocks a merge.
+description: The workflow_run half of Deedglass scan. Posts or edits one comment on the pull request in this repository; a run with no result edits an earlier comment to say so. Never checks out pull request code. Its errors become warnings, so it never blocks a merge.
 author: Deedglass
 branding:
   icon: shield
@@ -8,16 +8,16 @@ runs:
   using: composite
   steps:
     - name: Download the scan result (data only, validated before use)
-      if: github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
+      if: github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled","timed_out"]'), github.event.workflow_run.conclusion)
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-      continue-on-error: true # no artifact means no comment, never a failed job
+      continue-on-error: true # no artifact means no new comment, never a failed job
       with:
         name: deedglass-scan
         run-id: ${{ github.event.workflow_run.id }}
         github-token: ${{ github.token }}
         path: ${{ runner.temp }}/dg-artifact
     - name: Comment
-      if: github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
+      if: github.event.workflow_run.event == 'pull_request' && contains(fromJSON('["success","failure","cancelled","timed_out"]'), github.event.workflow_run.conclusion)
       shell: bash
       continue-on-error: true # src/comment.mjs turns its own errors into warnings; this covers the rest
       env:
@@ -29,4 +29,5 @@ runs:
         DG_HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
         DG_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
         DG_PRIVATE: ${{ github.event.repository.private }}
+        DG_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
       run: node "$DG_ACTION_PATH/../src/comment.mjs"

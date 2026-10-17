@@ -1,5 +1,5 @@
 # .github/workflows/deedglass-scan.yml: runs on every pull request with a read-only token.
-# Pin deedglass/scan-action to a full commit sha in your repository (the tag is shown as a comment).
+# Pin deedglass/scan-action to a release's full commit sha (@<sha> # v1); its release notes give the line.
 name: Deedglass scan
 on: [pull_request]
 permissions:
@@ -12,6 +12,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: deedglass/scan-action@070ad8307767ff38b4e912e9f6187aad55be9e65 # v1
+      - uses: deedglass/scan-action@v1
         with:
           licence: ${{ secrets.DEEDGLASS_LICENCE }} # only needed for comments on private repos

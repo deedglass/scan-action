@@ -9,16 +9,16 @@ inputs:
     description: The deedglass release to run. Its sha256 must be committed in checksums/.
     default: "0.1.0"
   licence:
-    description: A Deedglass Pro licence, only for comments on private repositories. Pass it from a secret. On a private repository it is checked with Dodo Payments and deedglass.com; on a public one it is never used.
+    description: A Deedglass Pro licence, only for comments on private repositories. Pass it from a secret. On a private repository each run activates the licence with Dodo Payments and deedglass.com, reads its features, then deactivates it, so the run holds one of the key's 3 activations for a few seconds. On a public repository it is never used.
     default: ""
   fail-under:
-    description: Fail the job when the grade is below this (A, B, C or D). Empty never fails on the grade.
+    description: Fail the job when the grade is below this (A, B, C or D). Empty never fails on the grade. Anything else fails the job before the scan.
     default: ""
   sarif:
     description: "Upload SARIF to code scanning: auto, always or never."
     default: auto
   dir:
-    description: The directory to scan.
+    description: The directory to scan, relative to the repository root. A leading / or ~, or .., fails the job before the scan.
     default: "."
 outputs:
   grade:
@@ -42,6 +42,14 @@ runs:
       run: |
         echo "Deedglass scan runs on Linux and macOS runners." >&2
         exit 1
+    - name: Check the inputs
+      shell: bash
+      env:
+        DG_ACTION_PATH: ${{ github.action_path }}
+        DG_DIR: ${{ inputs.dir }}
+        DG_FAIL_UNDER: ${{ inputs.fail-under }}
+        DG_SARIF: ${{ inputs.sarif }}
+      run: node "$DG_ACTION_PATH/src/inputs.mjs"
     - name: Download deedglass and check its sha256
       shell: bash
       env:
