@@ -1,0 +1,47 @@
+# Tests for this action: the unit tests, then the action itself on this repository's pull request
+# (the release download and its sha256 check, the scan of head and base, the summary, result.json).
+# SARIF upload and the comment job are left out. No secrets.
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: node --version && npm test
+  self-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scan
+        uses: ./
+        with:
+          sarif: never
+      - name: Check the outputs and result.json
+        env:
+          DG_GRADE: ${{ steps.scan.outputs.grade }}
+          DG_POINTS: ${{ steps.scan.outputs.points }}
+          DG_BASE_GRADE: ${{ steps.scan.outputs.base-grade }}
+          DG_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          case "$DG_GRADE" in A|B|C|D|F) ;; *) echo "✕ no grade: '$DG_GRADE'" >&2; exit 1 ;; esac
+          case "$DG_POINTS" in ''|*[!0-9]*) echo "✕ no points: '$DG_POINTS'" >&2; exit 1 ;; esac
+          if [ "$DG_EVENT" = pull_request ] && [ -z "$DG_BASE_GRADE" ]; then echo "✕ the base wasn't scanned" >&2; exit 1; fi
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            import { parseResult } from './src/validate.mjs';
+            const r = parseResult(readFileSync(process.env.RUNNER_TEMP + '/deedglass/result.json', 'utf8'));
+            console.log('✓ result.json is valid · deedglass ' + r.version + ' · grade ' + r.head.grade);
+          "
+          echo "✓ grade $DG_GRADE · $DG_POINTS points · base ${DG_BASE_GRADE:-not scanned}"

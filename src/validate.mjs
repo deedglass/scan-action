@@ -11,7 +11,8 @@ const fail = (m) => { throw new Invalid(m); };
 const keys = (o, want, where) => {
   if (!o || typeof o !== 'object' || Array.isArray(o)) fail(`${where} must be an object`);
   const k = Object.keys(o).sort().join(',');
-  if (k !== [...want].sort().join(',')) fail(`${where} has keys ${k}`);
+  // The message names the keys, but only in a log-safe form: they come from hostile data.
+  if (k !== [...want].sort().join(',')) fail(`${where} has keys ${k.replace(/[^A-Za-z0-9_,]/g, '?').slice(0, 200)}`);
 };
 const str = (v, where, max = 300) => { if (typeof v !== 'string' || v.length > max) fail(`${where} must be a string of at most ${max}`); return v; };
 const int = (v, where, max) => { if (!Number.isInteger(v) || v < 0 || v > max) fail(`${where} must be 0 to ${max}`); return v; };

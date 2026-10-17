@@ -1,18 +1,18 @@
 name: Deedglass scan
-description: Grade the agent setup in this repository (blast radius A to F) on every pull request. Read-only; nothing sent to Deedglass.
+description: Grades the agent setup (blast radius A to F) on every pull request. Read-only; scan data is never sent to Deedglass.
 author: Deedglass
 branding:
   icon: shield
   color: purple
 inputs:
   version:
-    description: The deedglass release to run.
+    description: The deedglass release to run. Its sha256 must be committed in checksums/.
     default: "0.1.0"
   licence:
-    description: A Deedglass Pro licence (only for comments on private repositories). Pass it from a secret.
+    description: A Deedglass Pro licence, only for comments on private repositories. Pass it from a secret. On a private repository it is checked with Dodo Payments and deedglass.com; on a public one it is never used.
     default: ""
   fail-under:
-    description: Fail the job when the grade is below this (A, B, C or D). Empty never fails.
+    description: Fail the job when the grade is below this (A, B, C or D). Empty never fails on the grade.
     default: ""
   sarif:
     description: "Upload SARIF to code scanning: auto, always or never."
@@ -57,7 +57,7 @@ runs:
       run: |
         set -euo pipefail
         out="$RUNNER_TEMP/deedglass"
-        mkdir -p "$out"
+        mkdir -p "$out/head"
         "$out/bin/deedglass" scan --ci --dir "$DG_DIR" --format json,sarif --out-dir "$out/head" > /dev/null || true
         cp "$out/head/deedglass-scan.json" "$out/head.json" 2>/dev/null || true
         if [ -n "${DG_BASE_SHA:-}" ] && git cat-file -e "$DG_BASE_SHA" 2>/dev/null; then

@@ -1,2 +1,7 @@
 # sha256 of the deedglass 0.1.0 release archives, committed when this action is released.
-# The action refuses a version with no line here. Filled from the GitHub release checksums.txt.
+# The action refuses a version with no line here. Copied from the v0.1.0 release's checksums.txt
+# (github.com/deedglass/deedglass/releases/tag/v0.1.0) and matched against GitHub's asset digests.
+023a4636b45e181c99566c4ab23aa69f2e9ae61e9a09cd6a07d2935793907d91  deedglass_0.1.0_darwin_amd64.tar.gz
+e22d192fd4a695d6c45fbcc6ec43885b919363717c3f599e4a4dbff8211ba1ad  deedglass_0.1.0_darwin_arm64.tar.gz
+cebdc13df8367d2cdb586e20418d01664a1ff924a8492d7974357d0348f703a7  deedglass_0.1.0_linux_amd64.tar.gz
+4760eee2c9b091efa754243ba1e1c7358884b6397aad148e7bccd085484e5195  deedglass_0.1.0_linux_arm64.tar.gz
