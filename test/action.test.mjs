@@ -262,6 +262,19 @@ test('checksums: the default version has a sha256 for every runner the action ac
   assert.ok(text('action.yml').includes('mkdir -p "$out/head"'), 'the scan writes into $out/head, which must exist first');
 });
 
+test('docs: every use of this action is pinned to a full commit sha with a # v1 comment', () => {
+  const files = ['README.md', 'examples/deedglass-scan.yml', 'examples/deedglass-comment.yml'];
+  let seen = 0;
+  for (const f of files) {
+    for (const m of text(f).matchAll(/uses: deedglass\/scan-action[^\s@]*@(\S+)(.*)$/gm)) {
+      seen++;
+      assert.match(m[1], /^[0-9a-f]{40}$/, `${f}: ${m[0]}`);
+      assert.match(m[2], /^ # v1$/, `${f}: ${m[0]}`);
+    }
+  }
+  assert.ok(seen >= 4, `only ${seen} pinned uses`);
+});
+
 test('docs: the README and action.yml say what the footer says', () => {
   for (const f of ['README.md', 'action.yml']) {
     const t = text(f).replace(/\s+/g, ' ');

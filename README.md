@@ -30,7 +30,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: deedglass/scan-action@v1
+      - uses: deedglass/scan-action@070ad8307767ff38b4e912e9f6187aad55be9e65 # v1
         with:
           licence: ${{ secrets.DEEDGLASS_LICENCE }} # only needed for comments on private repos
 ```
@@ -50,7 +50,7 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - uses: deedglass/scan-action/comment@v1
+      - uses: deedglass/scan-action/comment@070ad8307767ff38b4e912e9f6187aad55be9e65 # v1
 ```
 
 - `deedglass-scan.yml` runs on `pull_request` with `contents: read`. It scans the head and the base,
