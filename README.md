@@ -43,7 +43,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: deedglass/scan-action@v1
+      - uses: deedglass/scan-action@0047a3d4402ac9f7f5d7ee2060a0f4a5bdbb115b # v1
 ```
 
 ```yaml
@@ -61,7 +61,7 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - uses: deedglass/scan-action/comment@v1
+      - uses: deedglass/scan-action/comment@0047a3d4402ac9f7f5d7ee2060a0f4a5bdbb115b # v1
 ```
 
 - `deedglass-scan.yml` runs on `pull_request` with `contents: read`. It scans the head and the base,
