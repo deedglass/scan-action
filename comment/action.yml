@@ -28,6 +28,5 @@ runs:
         DG_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         DG_HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
         DG_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
-        DG_PRIVATE: ${{ github.event.repository.private }}
         DG_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
       run: node "$DG_ACTION_PATH/../src/comment.mjs"

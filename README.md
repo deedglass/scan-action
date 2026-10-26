@@ -1,17 +1,27 @@
 # Deedglass scan
 
+[![agent blast radius A](https://img.shields.io/badge/agent%20blast%20radius-A-0F766E)](https://deedglass.com/score)
+
 Grades the agent setup in your repository on every pull request: the **agent blast radius**, A to
-F, with its deductions. It runs `deedglass scan` on the runner, read-only.
+F, with its deductions. It runs `deedglass scan` on the runner, read-only. Free on public and private
+repositories, with no key and no account.
 
 **What leaves the runner.** Scan data is never sent to Deedglass. Results go only to GitHub: the
 job summary, code scanning (SARIF), one workflow artifact kept for 3 days, and one comment on the
-pull request. On a private repository with a licence set, each run activates the licence with Dodo
-Payments and deedglass.com (the key and a short hash of the runner's hostname; nothing from the
-scan), reads its features, then deactivates it with Dodo Payments. On a public repository the
-licence is never used. The action comments only on pull requests in the repository that installed
-it.
+pull request. The action comments only on pull requests in the repository that installed it.
 
 A means a small blast radius, not a safe agent. What the grade measures: https://deedglass.com/score
+
+## Quick start
+
+```sh
+mkdir -p .github/workflows && cd .github/workflows
+curl -fsSLO https://raw.githubusercontent.com/deedglass/scan-action/v1/examples/deedglass-scan.yml
+curl -fsSLO https://raw.githubusercontent.com/deedglass/scan-action/v1/examples/deedglass-comment.yml
+```
+
+Commit the two files and open a pull request. The job summary has the grade and a badge line for
+your README.
 
 ## Use it
 
@@ -33,9 +43,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: deedglass/scan-action@60650a5620cf264b0c7fc5b1eefd81d41e6f5cf3 # v1
-        with:
-          licence: ${{ secrets.DEEDGLASS_LICENCE }} # only needed for comments on private repos
+      - uses: deedglass/scan-action@v1
 ```
 
 ```yaml
@@ -53,7 +61,7 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - uses: deedglass/scan-action/comment@60650a5620cf264b0c7fc5b1eefd81d41e6f5cf3 # v1
+      - uses: deedglass/scan-action/comment@v1
 ```
 
 - `deedglass-scan.yml` runs on `pull_request` with `contents: read`. It scans the head and the base,
@@ -63,7 +71,34 @@ jobs:
   API, and posts **one** comment, which each later run edits. It never checks out pull request
   code.
 
+## The badge
+
+Every run's job summary ends with a line like this one, for the grade it found:
+
+```markdown
+[![agent blast radius A](https://img.shields.io/badge/agent%20blast%20radius-A-0F766E)](https://deedglass.com/score)
+```
+
+Paste it in your README. It is a shields.io static badge: the grade is in the URL, so no server
+of ours is involved, and you edit the letter when the grade changes. The same line is the `badge`
+output. Colours match `deedglass scan --badge`: teal for A and B, neutral for C, amber for D and F.
+
+For a badge that follows the grade, set `badge: true` on a run for your default branch. The action
+then writes `.deedglass/score.json` (a shields.io endpoint file holding the grade and nothing else)
+into the workspace; it never commits. Commit it in a later step of your own workflow, or run
+`deedglass scan --badge` on your machine and commit the file, then use:
+
+```markdown
+[![agent blast radius](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2F<owner>%2F<repo>%2F<branch>%2F.deedglass%2Fscore.json)](https://deedglass.com/score)
+```
+
+shields.io reads your own file from GitHub.
+
 ## The comment
+
+Short, and laid out like the CLI: the grade first (`A → D` when it changed), then points, write
+paths with no check, and high and medium findings, each as `before → after`. Then what is new (✕
+high, ○ medium or lower), what was resolved (✓), and the one thing to fix first.
 
 A new comment appears only when the pull request changes agent config and the scan differs from
 the base. Agent config is `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
@@ -72,8 +107,8 @@ the base. Agent config is `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 whose grade, counts and findings all match the base, gets no new comment.
 
 Once a comment exists, each later run for the pull request's current head edits it: to that run's
-numbers, or, when the run has no result to show (the scan job stopped before uploading one, its
-result failed validation, or a private repository had no licence for comments), to say so. A run for
+numbers, or, when the run has no result to show (the scan job stopped before uploading one, or
+its result failed validation), to say so. A run for
 an older push never edits it. A run whose comment job doesn't run at all, for example one that was
 skipped, leaves the comment as it was.
 
@@ -88,19 +123,19 @@ produces no report.
 
 | Input | Default | Meaning |
 |---|---|---|
-| `version` | `0.1.0` | the deedglass release to run; its sha256 must be in `checksums/` |
-| `licence` | `''` | a Pro licence, only for comments on private repositories (pass a secret); used only on a private repository, where each run activates it with Dodo Payments and deedglass.com, then deactivates it |
+| `version` | `0.11.0` | the deedglass release to run. The default is the release this action was tested with. You can pin any version listed in `checksums/` (0.1.0 and 0.11.0 today); the archive's sha256 is checked against the line committed there, copied from that release's `checksums.txt`. Any other version is refused before a download |
 | `fail-under` | `''` | fail when the grade is below this (A to D); empty never fails on the grade |
 | `sarif` | `auto` | `auto`, `always` or `never` |
 | `dir` | `.` | the directory to scan, relative to the repository root; a leading `/` or `~`, or `..`, fails the job |
+| `badge` | `false` | `true` writes `.deedglass/score.json` into the workspace (never committed) |
 
-Outputs: `grade`, `points`, `base-grade`, `touched`.
+Outputs: `grade`, `points`, `base-grade`, `touched`, `badge` (the static badge line).
 
 ## Permissions
 
 | Workflow | Trigger | Permissions | Secrets | Checks out PR code |
 |---|---|---|---|---|
-| scan | `pull_request` | `contents: read` (fork PRs get a read-only token) | none (the licence only on private repos) | yes, with `persist-credentials: false` |
+| scan | `pull_request` | `contents: read` (fork PRs get a read-only token) | none | yes, with `persist-credentials: false` |
 | comment | `workflow_run` | `pull-requests: write`, `actions: read` | none | never |
 
 ## Forks
@@ -113,24 +148,8 @@ come from GitHub, not from the artifact.
 
 ## Private repositories
 
-The scan and the job summary are free everywhere. Comments on private repositories need a Pro
-licence with `action_private`. The action uses the CLI's own licence code, the same as on a laptop:
-
-1. `deedglass licence activate` registers the runner with Dodo Payments and asks deedglass.com for
-   a signed token. This takes one of the key's 3 activations.
-2. `deedglass licence show` reads the token offline: is it active, and does it include
-   `action_private`?
-3. `deedglass licence deactivate` frees the activation at Dodo Payments. It runs every time, even
-   when step 1 or 2 failed, and the licence files are then removed from the runner.
-
-So a run holds one activation for a few seconds. With the key active on 3 machines already, step 1
-fails and the job summary says so. An activation stays taken if the run is cancelled between steps 1
-and 3, if Dodo Payments can't be reached for step 3 (the step log warns), or if deedglass.com fails
-after Dodo Payments accepted the key in step 1 (the CLI then has no token to deactivate with). Ask at
-deedglass.com/support to free one.
-
-Known, accepted risk: a forged `entitled: true` in the artifact gets a private repository one free
-comment.
+The same as public ones: the scan, the job summary and the comment are free, with no secret, key or
+account. The action makes no request to Deedglass on any repository.
 
 ## What it never does
 
@@ -144,9 +163,10 @@ Windows runners are refused: "Deedglass scan runs on Linux and macOS runners."
 
 ## Releasing (maintainers)
 
-1. Copy the release's `checksums.txt` lines for the four `.tar.gz` archives into
-   `checksums/<version>.txt`, match them against the release's asset digests, and set the
-   `version` default in `action.yml`.
+1. Copy the release's `checksums.txt` lines for the four Linux and macOS `.tar.gz` archives into
+   `checksums/<version>.txt`, match them against the release's asset digests
+   (`gh api repos/deedglass/deedglass/releases/tags/v<version> --jq '.assets[].digest'`), test the
+   action with it, and set the `version` default in `action.yml`. Keep older files so pins work.
 2. `npm test`, `actionlint`, `zizmor .` (one documented suppression, in `examples/`). CI runs
    `npm test` and this action on its own pull request.
 3. Tag `v1.x.y` on the release commit and move `v1` to it. Then, in a follow-up commit on `main`,

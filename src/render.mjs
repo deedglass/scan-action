@@ -1,13 +1,11 @@
 // The PR comment and the job summary (S47 §5, ACT-02). Every interpolated field goes through a
 // typed formatter (grade, num, sev, path or esc), so render() stays safe even on input that skipped
-// the validator. No HTML but the marker and <sub>; links only to deedglass.com/score and the run.
+// the validator. No HTML but the marker, <sub> and <br>; links only to deedglass.com/score and the run.
 export const MARKER = '<!-- deedglass-scan -->';
 
-// What leaves the runner, said only as far as the code goes (ACT-01). diff.mjs touches the licence
-// only when the repository is private and the licence input is set: `deedglass licence activate`
-// posts the key to Dodo Payments and to deedglass.com, `licence show` reads it back offline, and
-// `licence deactivate` frees the activation at Dodo Payments in every case. The scan makes no request.
-export const DATA_LINE = 'read-only · scan data is never sent to Deedglass · on a private repo with a licence, each run activates the licence with Dodo Payments and deedglass.com, then deactivates it';
+// What leaves the runner, said only as far as the code goes (ACT-01). The action runs the scan on
+// the runner; the scan makes no request, and nothing in this action calls Deedglass.
+export const DATA_LINE = 'read-only · scan data is never sent to Deedglass';
 
 // A fork's pull request controls its own scan job, so the comment says whose numbers these are. The
 // comment job never fails; the scan job's own check can (fail-under), and the comment says so then.
@@ -19,8 +17,26 @@ export const EDITS = 'each later run edits this comment';
 export const NO_RESULT = {
   missing: 'the scan job uploaded no result (it stopped before the upload, or its artifact couldn\'t be downloaded)',
   refused: 'its result didn\'t pass this action\'s checks, so nothing from it is shown',
-  private: 'comments on private repositories need a Deedglass Pro licence with `action_private`, and this run had none; its job summary has the grade',
 };
+
+// The badge colours match `deedglass scan --badge` (internal/scan/badge.go): teal for A and B,
+// neutral for C, amber for D and F; never red, which means deny.
+export const BADGE_COLORS = { A: '0F766E', B: '0F766E', C: '3F4453', D: '9A5B00', F: '9A5B00' };
+const SCORE_URL = 'https://deedglass.com/score';
+
+/** badgeLine is a shields.io static badge for a grade, as one Markdown line to paste in a README. */
+export function badgeLine(g) {
+  const v = grade(g);
+  if (v === '?') return '';
+  return `[![agent blast radius ${v}](https://img.shields.io/badge/agent%20blast%20radius-${v}-${BADGE_COLORS[v]})](${SCORE_URL})`;
+}
+
+/** badgeJSON is the shields.io endpoint body, the same as `deedglass scan --badge` writes. */
+export function badgeJSON(g) {
+  const v = grade(g);
+  if (v === '?') return '';
+  return JSON.stringify({ schemaVersion: 1, label: 'agent blast radius', message: v, color: BADGE_COLORS[v], cacheSeconds: 3600 });
+}
 
 const SAFE_PATH = /^[A-Za-z0-9._/@ -]{1,200}$/;
 const GRADE = /^[ABCDF]$/;
@@ -59,6 +75,10 @@ export function nothingChanged(r) {
     && !list(r.new_findings).length && !list(r.resolved).length && !list(r.new_paths).length;
 }
 
+// One finding or path per line, with the CLI's glyphs: ✕ high, ○ medium or lower, ✓ resolved.
+const glyph = (s) => (s === 'high' ? '✕' : '○');
+const change = (b, h, f) => (b ? (f(b) === f(h) ? f(h) : `${f(b)} → ${f(h)}`) : f(h));
+
 export function render(r, { runUrl = '', comment = true, scanFailed = false } = {}) {
   const h = r.head;
   const b = r.base;
@@ -68,26 +88,29 @@ export function render(r, { runUrl = '', comment = true, scanFailed = false } = 
   const newPaths = list(r.new_paths);
   const lines = [];
   if (comment) lines.push(MARKER);
-  const was = b && b.grade !== h.grade ? ` (was **${grade(b.grade)}**)` : '';
-  lines.push(`### Deedglass scan · agent blast radius **${grade(h.grade)}**${was}`);
-  if (comment) lines.push('', scanFailed ? `${PROVENANCE} ${SCAN_FAILED}` : PROVENANCE);
-  if (touched.length) lines.push('', `This pull request changes agent config: ${touched.slice(0, 5).map(path).join(', ')}${touched.length > 5 ? ` and ${num(touched.length - 5)} more` : ''}`);
-  if (nothingChanged(r)) lines.push('', 'No change from the base branch.');
-  lines.push('', '| | Before | After |', '|---|---:|---:|');
-  lines.push(`| Grade | ${side(b)} | ${side(h)} |`);
-  lines.push(`| Write paths with no check | ${b ? num(b.write_paths) : '·'} | ${num(h.write_paths)} |`);
-  lines.push(`| High · medium findings | ${b ? `${num(b.high)} · ${num(b.medium)}` : '·'} | ${num(h.high)} · ${num(h.medium)} |`);
+  const was = b && grade(b.grade) !== grade(h.grade) ? `${grade(b.grade)} → ` : '';
+  lines.push(`### Deedglass · agent blast radius ${was}**${grade(h.grade)}**`);
+  lines.push('');
+  if (nothingChanged(r)) lines.push('✓ No change from the base branch.');
+  else if (!b) lines.push('○ The base branch wasn\'t scanned, so this is the head only.');
+  lines.push(`- Points: ${change(b, h, (s) => num(s.points))} of 100`);
+  lines.push(`- Write paths with no check: ${change(b, h, (s) => num(s.write_paths))}`);
+  lines.push(`- High · medium findings: ${change(b, h, (s) => `${num(s.high)} · ${num(s.medium)}`)}`);
+  if (touched.length) lines.push(`- Agent config changed: ${touched.slice(0, 5).map(path).join(', ')}${touched.length > 5 ? ` and ${num(touched.length - 5)} more` : ''}`);
   if (newFindings.length || newPaths.length) {
-    lines.push('', '**New in this pull request**');
-    for (const f of newFindings.slice(0, 10)) lines.push(`- ${sev(f?.severity)} · ${esc(f?.title)} · ${path(f?.path)}`);
-    for (const p of newPaths.slice(0, 10)) lines.push(`- write path with no check · ${path(p)}`);
+    lines.push('', '**New**');
+    for (const f of newFindings.slice(0, 10)) lines.push(`- ${glyph(f?.severity)} ${sev(f?.severity)} · ${esc(f?.title)} · ${path(f?.path)}`);
+    for (const p of newPaths.slice(0, 10)) lines.push(`- ○ write path with no check · ${path(p)}`);
   }
   if (resolved.length) {
-    lines.push('', '**Resolved in this pull request**');
-    for (const f of resolved.slice(0, 10)) lines.push(`- ${sev(f?.severity)} · ${esc(f?.title)}`);
+    lines.push('', '**Resolved**');
+    for (const f of resolved.slice(0, 10)) lines.push(`- ✓ ${sev(f?.severity)} · ${esc(f?.title)}`);
   }
-  if (r.fix_first) lines.push('', `**Fix this first:** ${esc(r.fix_first)}.`);
-  lines.push('', `<sub>deedglass ${esc(r.version)} · formula v1 · ${DATA_LINE} · [What the grade means](https://deedglass.com/score)${runLink(runUrl)}${comment ? ` · ${EDITS}` : ''}</sub>`);
+  if (r.fix_first) lines.push('', `**Fix first:** ${esc(r.fix_first)}`);
+  if (!comment && badgeLine(h.grade)) lines.push('', '**README badge** (a static shields.io badge for this grade; paste it, and update it when the grade changes)', '', '```markdown', badgeLine(h.grade), '```');
+  lines.push('');
+  if (comment) lines.push(`<sub>${scanFailed ? `${PROVENANCE} ${SCAN_FAILED}` : PROVENANCE}</sub><br>`);
+  lines.push(`<sub>deedglass ${esc(r.version)} · ${DATA_LINE} · [What the grade means](${SCORE_URL})${runLink(runUrl)}${comment ? ` · ${EDITS}` : ''}</sub>`);
   return lines.join('\n');
 }
 
@@ -99,10 +122,11 @@ export function renderNoResult(why, { runUrl = '' } = {}) {
   const line = Object.values(NO_RESULT).includes(why) ? why : NO_RESULT.missing;
   return [
     MARKER,
-    '### Deedglass scan · no result from the latest run',
+    '### Deedglass · no result from the latest run',
     '',
-    `The latest run of the scan on this pull request reported no result: ${line}. The grade shown here before came from an earlier run, so it was removed. This comment is information only and never blocks a merge.`,
+    `○ The latest run reported no result: ${line}. The grade shown here before came from an earlier run, so it was removed.`,
     '',
-    `<sub>formula v1 · ${DATA_LINE} · [What the grade means](https://deedglass.com/score)${runLink(runUrl)} · ${EDITS}</sub>`,
+    `<sub>${PROVENANCE}</sub><br>`,
+    `<sub>${DATA_LINE} · [What the grade means](${SCORE_URL})${runLink(runUrl)} · ${EDITS}</sub>`,
   ].join('\n');
 }

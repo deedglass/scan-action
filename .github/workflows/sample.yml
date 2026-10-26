@@ -1,0 +1,39 @@
+# The action on a sample agent repo (its own workflow, since each run of the action uploads one
+# artifact named deedglass-scan). No secrets.
+name: sample
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  sample:
+    # A sample agent repo made at run time (never committed, so this repo's own grade stays its own):
+    # a Postgres MCP server with a database URL in .mcp.json. The grade must drop below A, the
+    # badge output must be set, and badge: true must write .deedglass/score.json.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Make the sample
+        run: |
+          mkdir -p sample
+          printf '%s\n' '{"mcpServers":{"postgres":{"command":"npx","args":["-y","@modelcontextprotocol/server-postgres","postgresql://agent:pw@db.example.com/prod"]}}}' > sample/.mcp.json
+      - id: scan
+        uses: ./
+        with:
+          dir: sample
+          sarif: never
+          badge: "true"
+      - name: Check the grade, the badge output and score.json
+        env:
+          DG_GRADE: ${{ steps.scan.outputs.grade }}
+          DG_BADGE: ${{ steps.scan.outputs.badge }}
+        run: |
+          set -euo pipefail
+          case "$DG_GRADE" in B|C|D|F) ;; *) echo "✕ the sample should grade below A, got '$DG_GRADE'" >&2; exit 1 ;; esac
+          case "$DG_BADGE" in "[![agent blast radius $DG_GRADE](https://img.shields.io/badge/agent%20blast%20radius-$DG_GRADE-"*) ;; *) echo "✕ badge output: '$DG_BADGE'" >&2; exit 1 ;; esac
+          grep -q "\"message\":\"$DG_GRADE\"" .deedglass/score.json || { echo "✕ .deedglass/score.json" >&2; exit 1; }
+          echo "✓ sample grade $DG_GRADE · badge line and score.json written"

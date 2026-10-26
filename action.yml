@@ -1,16 +1,13 @@
 name: Deedglass scan
-description: Grades the agent setup (blast radius A to F) on every pull request. Read-only; scan data is never sent to Deedglass.
+description: Grades the agent setup (blast radius A to F) on every pull request. Free, read-only; scan data is never sent to Deedglass.
 author: Deedglass
 branding:
   icon: shield
   color: purple
 inputs:
   version:
-    description: The deedglass release to run. Its sha256 must be committed in checksums/.
-    default: "0.1.0"
-  licence:
-    description: A Deedglass Pro licence, only for comments on private repositories. Pass it from a secret. On a private repository each run activates the licence with Dodo Payments and deedglass.com, reads its features, then deactivates it, so the run holds one of the key's 3 activations for a few seconds. On a public repository it is never used.
-    default: ""
+    description: The deedglass release to run. The default is the release this action was tested with. Any version whose sha256 lines are committed in checksums/ can be pinned; any other is refused.
+    default: "0.11.0"
   fail-under:
     description: Fail the job when the grade is below this (A, B, C or D). Empty never fails on the grade. Anything else fails the job before the scan.
     default: ""
@@ -20,6 +17,9 @@ inputs:
   dir:
     description: The directory to scan, relative to the repository root. A leading / or ~, or .., fails the job before the scan.
     default: "."
+  badge:
+    description: "true writes .deedglass/score.json (the shields.io endpoint file, grade only) into the workspace for a later step to commit. The action never commits it."
+    default: "false"
 outputs:
   grade:
     description: The grade of the pull request's head.
@@ -33,6 +33,9 @@ outputs:
   touched:
     description: true when the pull request changes agent configuration.
     value: ${{ steps.diff.outputs.touched }}
+  badge:
+    description: A Markdown line for a static shields.io badge with the head's grade, to paste in a README.
+    value: ${{ steps.diff.outputs.badge }}
 runs:
   using: composite
   steps:
@@ -49,6 +52,7 @@ runs:
         DG_DIR: ${{ inputs.dir }}
         DG_FAIL_UNDER: ${{ inputs.fail-under }}
         DG_SARIF: ${{ inputs.sarif }}
+        DG_BADGE: ${{ inputs.badge }}
       run: node "$DG_ACTION_PATH/src/inputs.mjs"
     - name: Download deedglass and check its sha256
       shell: bash
@@ -82,8 +86,7 @@ runs:
       shell: bash
       env:
         DG_ACTION_PATH: ${{ github.action_path }}
-        DG_LICENCE: ${{ inputs.licence }}
-        DG_PRIVATE: ${{ github.event.repository.private }}
+        DG_BADGE: ${{ inputs.badge }}
       run: node "$DG_ACTION_PATH/src/diff.mjs"
     - name: Upload SARIF
       if: inputs.sarif != 'never' && steps.diff.outputs.sarif == 'true'

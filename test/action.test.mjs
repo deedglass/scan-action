@@ -7,12 +7,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { compare, licenceCheck, licenceLine } from '../src/diff.mjs';
+import { compare } from '../src/diff.mjs';
 import { parseResult } from '../src/validate.mjs';
-import { render, renderNoResult, MARKER, esc, nothingChanged, DATA_LINE, PROVENANCE, SCAN_FAILED, NO_RESULT } from '../src/render.mjs';
+import { render, renderNoResult, MARKER, esc, nothingChanged, DATA_LINE, PROVENANCE, SCAN_FAILED, NO_RESULT, badgeLine, badgeJSON, BADGE_COLORS } from '../src/render.mjs';
 import { run, api, logSafe } from '../src/comment.mjs';
 import { isAgentPath } from '../src/paths.mjs';
-import { checkDir, checkFailUnder, checkSarif } from '../src/inputs.mjs';
+import { checkDir, checkFailUnder, checkSarif, checkBadge } from '../src/inputs.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const text = (f) => readFileSync(join(root, f), 'utf8');
@@ -145,11 +145,13 @@ test('comment: a poisoned artifact is refused: no new comment, nothing from it s
   assert.ok(body.startsWith(MARKER) && !body.includes('everyone') && !/agent blast radius \*\*[A-F]/.test(body));
 });
 
-test('comment: private repo without the licence feature gets no comment', async () => {
+test('comment: a private repo gets a comment with no secret or licence (free, DL-131)', async () => {
   const gh = fakeGitHub();
-  const r = await run(envWith({ ...good(), entitled: false }, { DG_PRIVATE: 'true' }), gh.f);
-  assert.equal(r.done, 'private-not-entitled');
-  assert.equal(gh.state.comments.length, 0);
+  assert.equal((await run(envWith(good(), { DG_PRIVATE: 'true' }), gh.f)).done, 'posted');
+  // Even a v1.0.x result that says entitled: false gets its comment now.
+  assert.equal((await run(envWith({ ...good(), entitled: false }, { DG_PRIVATE: 'true' }), gh.f)).done, 'edited');
+  assert.equal(gh.state.comments.length, 1);
+  assert.equal(good().entitled, true, 'result.json keeps the v1 field, always true');
 });
 
 // --- ACT-01 and ACT-02 ---
@@ -160,11 +162,10 @@ test('render: the footer says what leaves the runner, and the comment says whose
   const md = render(good(), { runUrl: 'https://github.com/acme/agents/actions/runs/42' });
   assert.ok(md.includes(DATA_LINE));
   assert.ok(DATA_LINE.includes('scan data is never sent to Deedglass'));
-  assert.ok(DATA_LINE.includes('on a private repo with a licence, each run activates the licence with Dodo Payments and deedglass.com, then deactivates it'));
-  assert.ok(!/checked with Dodo/.test(DATA_LINE), 'the run activates the licence; it does not only check it');
+  assert.equal(DATA_LINE, 'read-only · scan data is never sent to Deedglass');
   assert.ok(md.includes("Reported by this PR's run"));
   assert.ok(md.includes('This comment is information only and never blocks a merge.'));
-  assert.ok(md.split('\n').includes(PROVENANCE));
+  assert.ok(md.split('\n').includes(`<sub>${PROVENANCE}</sub><br>`));
   assert.ok(!md.includes(SCAN_FAILED));
   assert.ok(md.includes('each later run edits this comment'));
   const summary = render(good(), { comment: false });
@@ -203,7 +204,7 @@ test('render: every interpolated field is escaped or typed, even on input that s
     touched: [evil, '.mcp.json', 1, 2, 3, 4, 5],
   };
   const md = render(r, { runUrl: 'https://github.com/acme/agents/actions/runs/42' });
-  const body = md.replace(MARKER, '').replace(/<\/?sub>/g, '');
+  const body = md.replace(MARKER, '').replace(/<\/?sub>|<br>/g, '');
   assert.ok(!/(^|[^\\])</.test(body), 'raw <');
   assert.ok(!/@[^\u200b]/.test(md), 'live mention');
   assert.ok(!/#[0-9]/.test(md), 'live reference');
@@ -213,8 +214,8 @@ test('render: every interpolated field is escaped or typed, even on input that s
   const links = [...md.matchAll(/\]\((https?:[^)]+)\)/g)].map((m) => m[1]);
   assert.deepEqual(links, ['https://deedglass.com/score', 'https://github.com/acme/agents/actions/runs/42']);
   assert.ok(md.includes('agent blast radius **?**'));
-  assert.ok(md.includes('| Grade | ? · ? | ? · ? |'));
-  assert.ok(md.includes('- ? · '));
+  assert.ok(md.includes('- Points: ? of 100'));
+  assert.ok(md.includes('- ○ ? · '));
   assert.ok(md.includes('`.mcp.json`') && md.includes('`ok/path.json`') && md.includes('and 2 more'));
 });
 
@@ -241,7 +242,7 @@ test('comment: an earlier comment is edited to the current numbers when the PR g
   assert.ok(gh.state.comments[0].body.includes('No change from the base branch.'));
   const quiet = fakeGitHub({ files: ['README.md'], comments: gh.state.comments });
   assert.equal((await run(envWith(good()), quiet.f)).done, 'edited-untouched');
-  assert.ok(!quiet.state.comments[0].body.includes('changes agent config'));
+  assert.ok(!quiet.state.comments[0].body.includes('Agent config changed'));
 });
 
 test('comment: the sticky comment is found past the first page (no duplicate)', async () => {
@@ -274,7 +275,7 @@ test('comment: the script never fails its job, and hostile text can\'t start a w
 
 test('checksums: the default version has a sha256 for every runner the action accepts', () => {
   const version = /version:\n\s+description:[^\n]*\n\s+default: "([0-9.]+)"/.exec(text('action.yml'))?.[1];
-  assert.equal(version, '0.1.0');
+  assert.equal(version, '0.11.0');
   const sums = text(`checksums/${version}.txt`);
   for (const os of ['linux', 'darwin']) {
     for (const arch of ['amd64', 'arm64']) {
@@ -309,12 +310,8 @@ test('docs: the README and action.yml say what the footer says', () => {
   for (const f of ['README.md', 'action.yml']) {
     const t = text(f).replace(/\s+/g, ' ');
     assert.ok(/scan data is never sent to Deedglass/i.test(t), f);
-    assert.ok(/activates the licence with Dodo Payments and deedglass\.com/.test(t), f);
-    assert.ok(/deactivates it/.test(t), f);
-    assert.ok(!/checked with Dodo/.test(t), f);
   }
   const t = text('README.md').replace(/\s+/g, ' ');
-  assert.ok(t.includes("one of the key's 3 activations"), 'README says a run takes an activation');
   assert.ok(!/never shows a stale grade|edited on each push/.test(t + text('CHANGELOG.md') + text('src/render.mjs')));
   assert.ok(!/nothing (is )?sent to Deedglass|nothing leaves the runner|nothing left the runner/i.test(text('README.md') + text('action.yml') + text('src/render.mjs')));
 });
@@ -343,84 +340,7 @@ test('banned words: none in the action, its docs or its code', () => {
   }
 });
 
-// --- review fixes: licence activations, stale comments, out-of-order runs, inputs ---
-
-// A fake deedglass that logs each call and plays the licence commands (FAKE_* pick the outcome).
-function fakeDeedglass() {
-  const d = join(tmpdir(), `dgbin-${Math.random()}`);
-  mkdirSync(d, { recursive: true });
-  const bin = join(d, 'deedglass');
-  writeFileSync(bin, `#!/bin/sh
-echo "$DEEDGLASS_LICENCE_FILE|$*" >> "$FAKE_LOG"
-case "$*" in
-  *"licence activate"*)
-    if [ "$FAKE_ACTIVATE" = fail ]; then echo '{"error":{"code":"licence_key_limit","message":"x"}}' >&2; exit 1; fi
-    if [ "$FAKE_ACTIVATE" = half ]; then echo '{}' > "$DEEDGLASS_LICENCE_FILE"; echo '{"error":{"code":"licence_unreachable"}}' >&2; exit 1; fi
-    echo '{}' > "$DEEDGLASS_LICENCE_FILE"; echo '{"status":"activated"}' ;;
-  *"licence show"*)
-    if [ "$FAKE_SHOW" = fail ]; then echo '{"error":{"code":"licence_signature"}}' >&2; exit 1; fi
-    echo "{\\"active\\":true,\\"features\\":[\\"\${FAKE_FEATURE:-action_private}\\"]}" ;;
-  *"licence deactivate"*)
-    if [ ! -f "$DEEDGLASS_LICENCE_FILE" ]; then echo '{"error":{"code":"licence_missing"}}' >&2; exit 1; fi
-    if [ "$FAKE_DEACTIVATE" = fail ]; then echo '{"error":{"code":"licence_unreachable"}}' >&2; exit 1; fi
-    rm -f "$DEEDGLASS_LICENCE_FILE"; echo '{"status":"deactivated"}' ;;
-  *) exit 2 ;;
-esac
-`);
-  chmodSync(bin, 0o755);
-  const log = join(d, 'calls.log');
-  const home = join(d, 'licence');
-  const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
-  const env = (extra = {}) => ({ PATH: process.env.PATH, FAKE_LOG: log, DG_PRIVATE: 'true', DG_LICENCE: 'DG-TEST-KEY-0001', ...extra });
-  return { bin, home, calls, env };
-}
-
-test('licence: a private run activates, reads, then always deactivates with the same licence file', () => {
-  const cases = [
-    { name: 'entitled', extra: {}, want: { entitled: true, why: 'licence' } },
-    { name: 'show fails', extra: { FAKE_SHOW: 'fail' }, want: { entitled: false, why: 'show' } },
-    { name: 'no action_private', extra: { FAKE_FEATURE: 'scan_full' }, want: { entitled: false, why: 'feature' } },
-    { name: 'activate refused', extra: { FAKE_ACTIVATE: 'fail' }, want: { entitled: false, why: 'activate', code: 'licence_key_limit' } },
-    { name: 'activate half-done', extra: { FAKE_ACTIVATE: 'half' }, want: { entitled: false, why: 'activate', code: 'licence_unreachable' } },
-  ];
-  for (const c of cases) {
-    const fk = fakeDeedglass();
-    const got = licenceCheck(fk.env(c.extra), fk.bin, fk.home);
-    assert.deepEqual(got, c.want, c.name);
-    const calls = fk.calls();
-    assert.equal(calls.at(-1).split('|')[1], '--json licence deactivate', `${c.name}: deactivate runs last`);
-    assert.equal(calls[0].split('|')[1], '--json licence activate DG-TEST-KEY-0001', c.name);
-    assert.equal(new Set(calls.map((l) => l.split('|')[0])).size, 1, `${c.name}: one licence file`);
-    assert.ok(calls[0].startsWith(join(fk.home, 'licence.json')), c.name);
-    assert.ok(!existsSync(fk.home), `${c.name}: licence files removed`);
-  }
-});
-
-test('licence: a failed deactivate is a warning that never shows the key; public and keyless runs never call the CLI', () => {
-  const fk = fakeDeedglass();
-  const got = licenceCheck(fk.env({ FAKE_DEACTIVATE: 'fail' }), fk.bin, fk.home);
-  assert.equal(got.entitled, true);
-  assert.match(got.warning, /couldn't deactivate the licence it activated \(licence_unreachable\)/);
-  assert.ok(!got.warning.includes('DG-TEST-KEY-0001'));
-  assert.ok(!existsSync(fk.home));
-  const quiet = fakeDeedglass();
-  assert.deepEqual(licenceCheck(quiet.env({ DG_PRIVATE: 'false' }), quiet.bin, quiet.home), { entitled: true, why: 'public' });
-  assert.deepEqual(licenceCheck(quiet.env({ DG_LICENCE: '' }), quiet.bin, quiet.home), { entitled: false, why: 'no-licence' });
-  assert.deepEqual(quiet.calls(), []);
-  const refused = fakeDeedglass();
-  assert.equal(licenceCheck(refused.env({ FAKE_ACTIVATE: 'fail' }), refused.bin, refused.home).warning, undefined, 'nothing was held, so nothing to warn about');
-});
-
-test('licence: the job summary says why a private repo got no comment', () => {
-  assert.match(licenceLine({ why: 'no-licence' }), /^Comments on private repos are part of Pro: deedglass\.com\/pro\./);
-  assert.match(licenceLine({ why: 'feature' }), /doesn't include comments on private repos \(`action_private`\)/);
-  const limit = licenceLine({ why: 'activate', code: 'licence_key_limit' });
-  assert.match(limit, /couldn't be activated for this run \(licence_key_limit\)/);
-  assert.match(limit, /active on 3 machines already/);
-  assert.ok(!licenceLine({ why: 'activate', code: 'licence_unreachable' }).includes('3 machines'));
-  assert.ok(!/part of Pro/.test(limit), 'a paying customer is not told to buy Pro');
-  assert.equal(licenceLine({ why: 'licence' }), '');
-});
+// --- review fixes: stale comments, out-of-order runs, inputs ---
 
 test('comment: a run with no artifact edits an earlier comment to say so, and posts nothing new', async () => {
   const none = fakeGitHub();
@@ -435,15 +355,7 @@ test('comment: a run with no artifact edits an earlier comment to say so, and po
   assert.ok(gh.state.comments[0].body.includes(NO_RESULT.missing));
   assert.ok(!/agent blast radius/.test(gh.state.comments[0].body), 'the old grade is gone');
   assert.equal((await run(envWith(good()), gh.f)).done, 'edited');
-  assert.ok(gh.state.comments[0].body.includes('agent blast radius **D**'));
-});
-
-test('comment: a private repo that is no longer entitled edits its earlier comment instead of leaving the grade', async () => {
-  const gh = fakeGitHub();
-  assert.equal((await run(envWith(good(), { DG_PRIVATE: 'true' }), gh.f)).done, 'posted');
-  const r = await run(envWith({ ...good(), entitled: false }, { DG_PRIVATE: 'true' }), gh.f);
-  assert.deepEqual(r, { done: 'edited-private-not-entitled', pr: 7 });
-  assert.ok(gh.state.comments[0].body.includes(NO_RESULT.private));
+  assert.ok(gh.state.comments[0].body.includes('agent blast radius A → **D**'));
 });
 
 test('comment: a run for an older push never edits the comment (runs can finish out of order)', async () => {
@@ -500,4 +412,70 @@ test('action.yml: the inputs are checked before the download; the comment step p
   const c = text('comment/action.yml');
   assert.ok(c.includes('DG_CONCLUSION: ${{ github.event.workflow_run.conclusion }}'));
   assert.equal(c.split('"success","failure","cancelled","timed_out"').length - 1, 2);
+});
+
+// --- v1.1.0: free everywhere, deedglass 0.11.0, the badge, the comment in the CLI style ---
+
+test('free: no licence, Pro, Dodo or paid wording anywhere in the action, its docs or its code', () => {
+  for (const f of ['README.md', 'action.yml', 'comment/action.yml', 'src/diff.mjs', 'src/render.mjs', 'src/comment.mjs', 'src/inputs.mjs', 'examples/deedglass-scan.yml', 'examples/deedglass-comment.yml']) {
+    const t = text(f);
+    assert.ok(!/licen[cs]e input|DEEDGLASS_LICENCE|licence:|\bPro\b|Dodo|action_private|deedglass\.com\/pro|activation/i.test(t), f);
+  }
+  assert.ok(!/inputs\.licence/.test(text('action.yml')));
+});
+
+test('badge: a static shields.io line and the endpoint body, in the CLI\'s colours, from a typed grade only', () => {
+  assert.equal(badgeLine('D'), '[![agent blast radius D](https://img.shields.io/badge/agent%20blast%20radius-D-9A5B00)](https://deedglass.com/score)');
+  assert.equal(badgeLine('A'), '[![agent blast radius A](https://img.shields.io/badge/agent%20blast%20radius-A-0F766E)](https://deedglass.com/score)');
+  assert.deepEqual(JSON.parse(badgeJSON('C')), { schemaVersion: 1, label: 'agent blast radius', message: 'C', color: '3F4453', cacheSeconds: 3600 });
+  for (const bad of ['E', '<b>', '', null, 'A)](https://evil']) { assert.equal(badgeLine(bad), ''); assert.equal(badgeJSON(bad), ''); }
+  assert.deepEqual(Object.keys(BADGE_COLORS), ['A', 'B', 'C', 'D', 'F']);
+  const summary = render(good(), { comment: false });
+  assert.ok(summary.includes(badgeLine('D')), 'the job summary has the line to paste');
+  assert.ok(!render(good()).includes('img.shields.io'), 'the comment stays short: no badge');
+  assert.ok(text('README.md').includes('https://img.shields.io/badge/agent%20blast%20radius-'), 'README shows the badge line');
+});
+
+test('badge: badge: true writes .deedglass/score.json into the workspace; the output is always set', () => {
+  const d = join(tmpdir(), `dgdiff-${Math.random()}`);
+  const ws = join(d, 'ws');
+  mkdirSync(join(d, 'deedglass'), { recursive: true });
+  mkdirSync(ws, { recursive: true });
+  writeFileSync(join(d, 'deedglass', 'head.json'), JSON.stringify(head));
+  writeFileSync(join(d, 'deedglass', 'base.json'), JSON.stringify(base));
+  writeFileSync(join(d, 'out'), '');
+  const env = { PATH: process.env.PATH, RUNNER_TEMP: d, GITHUB_WORKSPACE: ws, GITHUB_OUTPUT: join(d, 'out'), GITHUB_STEP_SUMMARY: join(d, 'sum') };
+  const off = spawnSync(process.execPath, [join(root, 'src', 'diff.mjs')], { env: { ...env, DG_BADGE: 'false' }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(off.status, 0, off.stderr);
+  assert.ok(!existsSync(join(ws, '.deedglass')));
+  assert.ok(readFileSync(join(d, 'out'), 'utf8').includes(`badge=${badgeLine('D')}`));
+  const on = spawnSync(process.execPath, [join(root, 'src', 'diff.mjs')], { env: { ...env, DG_BADGE: 'true' }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(on.status, 0, on.stderr);
+  assert.equal(readFileSync(join(ws, '.deedglass', 'score.json'), 'utf8'), badgeJSON('D') + '\n');
+  assert.equal(checkBadge('true'), '');
+  assert.equal(checkBadge('false'), '');
+  assert.notEqual(checkBadge('yes'), '');
+});
+
+test('render: the comment is short, summary first, in the CLI\'s glyphs', () => {
+  const md = render(good(), { runUrl: 'https://github.com/acme/agents/actions/runs/42' });
+  const lines = md.split('\n');
+  assert.equal(lines[1], '### Deedglass · agent blast radius A → **D**');
+  assert.ok(lines.length <= 30, `${lines.length} lines`);
+  assert.ok(md.includes('- Points: 100 → '));
+  assert.ok(/- [✕○] (high|medium) · /.test(md));
+  assert.ok(!md.includes('|---'), 'no table');
+  const same = render(compare(head, head, ['.mcp.json']));
+  assert.ok(same.includes('✓ No change from the base branch.'));
+  assert.ok(same.includes('- Points: ' + head.score.points + ' of 100'), 'an unchanged value has no arrow');
+});
+
+test('version: the default is a tested pin; a version with no committed checksums is refused before any download', () => {
+  assert.ok(text('checksums/0.1.0.txt').includes('deedglass_0.1.0_linux_amd64.tar.gz'), 'older pins stay possible');
+  const d = join(tmpdir(), `dginst-${Math.random()}`);
+  mkdirSync(d, { recursive: true });
+  const r = spawnSync(process.execPath, [join(root, 'src', 'install.mjs')], { env: { PATH: process.env.PATH, DG_VERSION: '9.9.9', DG_ACTION_PATH: root, RUNNER_TEMP: d }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /no checksums for deedglass 9\.9\.9/);
+  assert.ok(!existsSync(join(d, 'deedglass')), 'nothing downloaded');
 });

@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.1.0 (2026-10-26)
+
+Free everywhere, current, with a badge.
+
+- Runs deedglass 0.11.0 by default (was 0.1.0). `checksums/0.11.0.txt` holds the sha256 of the four
+  Linux and macOS archives, copied from the release's `checksums.txt` and matched against GitHub's
+  asset digests. `version` still pins any release with a file in `checksums/` (0.1.0 and 0.11.0);
+  any other version is refused before a download.
+- Free on private repositories too (DL-131): the `licence` input and every licence code path are
+  gone. The action makes no request to Deedglass on any repository, and private repositories get
+  the comment with no secret. `result.json` keeps its `entitled` field, always `true`, so a v1.0.x
+  comment job still reads a v1.1 result.
+- The badge: the job summary ends with a shields.io static badge line for the grade, also the new
+  `badge` output. `badge: true` writes `.deedglass/score.json`, the shields.io endpoint file
+  (grade only), into the workspace for your own workflow to commit; the action never commits.
+- The comment is shorter and laid out like the CLI: the grade first (`A → D`), one fact per line
+  as `before → after`, ✕ and ○ for new findings, ✓ for resolved ones, and the provenance and
+  footer in small text. The table is gone.
+- The footer reads "read-only · scan data is never sent to Deedglass".
+- README: a three-line quick start, the badge, and a free private-repositories section.
+
 ## v1.0.0 (2026-10-17)
 
 The first tagged release. Runs deedglass 0.1.0 by default: 0.1.1 has no GitHub release yet, and

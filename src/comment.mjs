@@ -101,9 +101,6 @@ export async function run(env, fetchImpl = fetch) {
   // A pull request that doesn't change agent config, or whose scan matches the base, gets no new
   // comment. An earlier comment is still edited to the current numbers.
   const quiet = !touched.length ? 'untouched' : nothingChanged(result) ? 'unchanged' : '';
-  // A forged entitled: true on a private repo gets one free comment: an accepted, documented risk.
-  if (env.DG_PRIVATE === 'true' && !result.entitled) return noResult(NO_RESULT.private, 'private-not-entitled');
-
   // 3. Render and upsert.
   const mine = await findMine();
   if (quiet && !mine) return { done: quiet, pr };

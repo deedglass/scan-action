@@ -27,8 +27,14 @@ export function checkSarif(v) {
   return ['auto', 'always', 'never'].includes(s) ? '' : `sarif takes auto, always or never (got "${shown(s)}").`;
 }
 
+/** checkBadge: true or false. */
+export function checkBadge(v) {
+  const s = String(v ?? '');
+  return ['true', 'false'].includes(s) ? '' : `badge takes true or false (got "${shown(s)}").`;
+}
+
 if (process.argv[1] && process.argv[1].endsWith('inputs.mjs')) {
-  const errs = [checkDir(process.env.DG_DIR), checkFailUnder(process.env.DG_FAIL_UNDER), checkSarif(process.env.DG_SARIF)].filter(Boolean);
+  const errs = [checkDir(process.env.DG_DIR), checkFailUnder(process.env.DG_FAIL_UNDER), checkSarif(process.env.DG_SARIF), checkBadge(process.env.DG_BADGE ?? 'false')].filter(Boolean);
   for (const e of errs) console.error(`✕ ${e}`);
   process.exit(errs.length ? 1 : 0);
 }
